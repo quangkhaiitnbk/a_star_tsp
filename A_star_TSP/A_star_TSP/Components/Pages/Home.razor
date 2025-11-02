@@ -1,0 +1,91 @@
+﻿@page "/"
+@* Thêm dòng này để đảm bảo trang hiển thị đúng trong dự án của bạn *@
+@rendermode InteractiveServer 
+
+@using Radzen.Blazor
+
+<PageTitle>Giới thiệu: A* và TSP</PageTitle>
+
+<RadzenRow JustifyContent="JustifyContent.Center">
+    <RadzenColumn Size="12" SizeLG="10" SizeXL="8">
+        <RadzenCard>
+            <RadzenStack Gap="1.5rem">
+
+                <RadzenText Text="Giới Thiệu: Sử Dụng A* để Giải Bài Toán Người Du Lịch (TSP)" 
+                            TextStyle="TextStyle.H4" TagName="TagName.H1" 
+                            TextAlign="TextAlign.Center" style="margin-bottom: 1rem;" />
+
+                <RadzenText TextStyle="TextStyle.Body1">
+                    Trang này trình bày cơ sở lý thuyết và phương pháp luận cốt lõi để áp dụng thuật toán tìm kiếm A* vào việc giải quyết Bài toán Người du lịch (TSP) - một chủ đề kinh điển trong lĩnh vực Trí tuệ Nhân tạo.
+                </RadzenText>
+
+                <RadzenFieldset Text="Bài toán Người Du Lịch (TSP) là gì?">
+                    <RadzenStack Gap="1rem">
+                        <RadzenText TextStyle="TextStyle.Body2">
+                            Bài toán Người Du Lịch (TSP) là một bài toán tối ưu hóa kinh điển. Mục tiêu là tìm ra một <strong>chu trình (tour)</strong> ngắn nhất đi qua tất cả các thành phố trong một danh sách, mỗi thành phố đúng một lần, và quay trở lại điểm xuất phát.
+                        </RadzenText>
+                        <RadzenAlert Shade="Shade.Lighter" AlertStyle="AlertStyle.Warning" Variant="Variant.Flat" Title="Tính Phức Tạp">
+                            Đây là bài toán thuộc lớp <strong>NP-hard</strong>. Khi số lượng thành phố (N) tăng lên, số lượng chu trình khả thi bùng nổ theo hàm giai thừa (O(N!)), khiến cho việc tìm kiếm vét cạn (thử mọi đường) là bất khả thi.
+                        </RadzenAlert>
+                    </RadzenStack>
+                </RadzenFieldset>
+
+                <RadzenFieldset Text="Thuật toán A* (A-Star) là gì?">
+                    <RadzenStack Gap="1rem">
+                        <RadzenText TextStyle="TextStyle.Body2">
+                            Thuật toán A* là một thuật toán tìm kiếm có thông tin (informed search) dùng để tìm <strong>đường đi (path)</strong> ngắn nhất từ một điểm bắt đầu đến một điểm đích.
+                        </RadzenText>
+                        <RadzenAlert Shade="Shade.Lighter" AlertStyle="AlertStyle.Info" Variant="Variant.Flat" Title="Công thức Cốt lõi">
+                            A* hoạt động bằng cách ưu tiên các nút (trạng thái) có tổng chi phí f(n) thấp nhất:
+                            <br>
+                            <strong>f(n) = g(n) + h(n)</strong>
+                            <ul>
+                                <li><strong>g(n)</strong>: Chi phí <strong>thực tế</strong> đã đi từ điểm đầu đến nút n.</li>
+                                <li><strong>h(n)</strong>: Chi phí <strong>ước lượng (heuristic)</strong> từ n đến đích.</li>
+                            </ul>
+                            Để A* tìm ra đường đi tối ưu, hàm h(n) phải "chấp nhận được" (admissible), tức là không bao giờ đánh giá quá cao chi phí thực tế.
+                        </RadzenAlert>
+                    </RadzenStack>
+                </RadzenFieldset>
+
+                <RadzenFieldset Text="Thách thức: Làm thế nào để A* giải được TSP?">
+                    <RadzenStack Gap="1.5rem">
+                        <RadzenText TextStyle="TextStyle.Body1">
+                            Thách thức lớn nhất là A* được thiết kế để tìm <i>đường đi (A → B)</i>, trong khi TSP là bài toán tìm <i>chu trình (A → B → C → ... → A)</i>.
+                            <br>
+                            Giải pháp là chúng ta phải "biến đổi" bài toán TSP thành một bài toán tìm kiếm đường đi trong một không gian trạng thái trừu tượng.
+                        </RadzenText>
+
+                        <div>
+                            <RadzenText Text="1. Định nghĩa lại 'Trạng Thái' (State)" TextStyle="TextStyle.Subtitle1" TagName="TagName.H3" />
+                            <RadzenText TextStyle="TextStyle.Body2" style="margin-top: 0.5rem;">
+                                Một "trạng thái" trong thuật toán không thể chỉ là thành phố hiện tại. Nó phải bao gồm 2 thông tin:
+                                <br>
+                                <strong>Trạng thái n = ({Thành phố hiện tại } j, { Tập các thành phố đã thăm } S)</strong>
+                                <br>
+                                Với cách định nghĩa này, không gian trạng thái sẽ có kích thước là O(N x 2^N).
+                            </RadzenText>
+                        </div>
+                        
+                        <div>
+                            <RadzenText Text="2. Xây dựng Hàm Heuristic (h(n))" TextStyle="TextStyle.Subtitle1" TagName="TagName.H3" />
+                            <RadzenText TextStyle="TextStyle.Body2" style="margin-top: 0.5rem;">
+                                Hàm h(n) phải ước lượng chi phí để (1) đi qua tất cả các thành phố <i>chưa thăm</i> và (2) quay về điểm bắt đầu.
+                                <br>
+                                Để đảm bảo tính tối ưu (admissible), h(n) phải là một <strong>cận dưới (lower bound)</strong> của chi phí thực.
+                                <br>
+                                Heuristic mạnh và phổ biến nhất chính là chi phí của <strong>Cây khung Tối thiểu (Minimum Spanning Tree - MST)</strong> trên tập hợp tất cả các nút <i>chưa thăm</i> (cộng với nút hiện tại và nút bắt đầu).
+                            </RadzenText>
+                        </div>
+                        
+                    </RadzenStack>
+                </RadzenFieldset>
+
+                <RadzenAlert Shade="Shade.Lighter" AlertStyle="AlertStyle.Danger" Variant="Variant.Flat" Title="Hạn chế lớn nhất">
+                    Mặc dù phương pháp này đảm bảo tìm ra lời giải tối ưu, việc sử dụng không gian trạng thái O(N x 2^N) khiến nó bùng nổ về bộ nhớ và thời gian. Do đó, phương pháp này chỉ khả thi trên thực tế với số lượng thành phố rất nhỏ (ví dụ: N nhỏ hơn 20).
+                </RadzenAlert>
+
+            </RadzenStack>
+        </RadzenCard>
+    </RadzenColumn>
+</RadzenRow>

@@ -1,0 +1,857 @@
+﻿@page "/a-star-tsp"
+@rendermode InteractiveServer
+@attribute [StreamRendering]
+@inject Radzen.NotificationService NotificationService
+@using Radzen
+@using System.Text
+@using System.Globalization
+@using Radzen.Blazor
+@using System.Diagnostics // Để theo dõi thời gian chạy A*
+
+<PageTitle>A* (TSP)</PageTitle>
+
+<RadzenStack Gap="1rem">
+    <RadzenRow>
+        <RadzenColumn Size="12" SizeLG="4">
+            <RadzenCard>
+                <RadzenStack Gap="1rem">
+                    <RadzenText Text="Cài Đặt Đồ Thị" TextStyle="TextStyle.Subtitle1" TagName="TagName.H3" />
+
+                    <RadzenFieldset Text="Tạo Đồ Thị">
+                        <RadzenStack Gap="1rem">
+                            <RadzenRow AlignItems="AlignItems.Center">
+                                <RadzenColumn Size="6">
+                                    <RadzenLabel Text="Loại đồ thị:" />
+                                </RadzenColumn>
+                                <RadzenColumn Size="6">
+                                    <RadzenStack Orientation="Orientation.Horizontal" AlignItems="AlignItems.Center" Gap="0.5rem">
+                                        <RadzenLabel Text="Vô hướng" />
+                                        <RadzenSwitch @bind-Value="@IsDirected" Change="@OnGraphTypeChanged" />
+                                        <RadzenLabel Text="Có hướng" />
+                                    </RadzenStack>
+                                </RadzenColumn>
+                            </RadzenRow>
+
+                            <RadzenRow AlignItems="AlignItems.Center">
+                                <RadzenColumn Size="6"><RadzenLabel Text="Số đỉnh (Ngẫu nhiên):" /></RadzenColumn>
+                                <RadzenColumn Size="6"> <RadzenNumeric @bind-Value="numVertices" Min="1" Max="20" /> </RadzenColumn>
+                            </RadzenRow>
+                            <RadzenButton Text="Tạo Ngẫu Nhiên" Icon="casino" ButtonStyle="ButtonStyle.Primary" Click="GenerateRandomGraph" />
+                        </RadzenStack>
+                    </RadzenFieldset>
+
+                    @if (GraphData != null && GraphData.AdjacencyList.Count > 0)
+                    {
+                        <RadzenFieldset Text="Chạy Thuật Toán A* (TSP)">
+                            <RadzenStack Gap="1rem">
+                                <RadzenRow AlignItems="AlignItems.Center">
+                                    <RadzenColumn Size="6"><RadzenLabel Text="Đỉnh bắt đầu:" /></RadzenColumn>
+                                    <RadzenColumn Size="6"><RadzenDropDown Data="GraphVertices" @bind-Value="tspStartVertex" Style="width:100%" AllowClear="false" /></RadzenColumn>
+                                </RadzenRow>
+                                <RadzenButton Text="Chạy A* (TSP)" Icon="all_inclusive" Click="RunAStarTsp" ButtonStyle="ButtonStyle.Success" Disabled=@(IsDirected || string.IsNullOrEmpty(tspStartVertex)) />
+                                @if (IsDirected)
+                                {
+                                    <RadzenText Text="A* (TSP) yêu cầu đồ thị vô hướng." TextStyle="TextStyle.Caption" Style="color: var(--rz-danger-dark);" />
+                                }
+                            </RadzenStack>
+                        </RadzenFieldset>
+                    }
+                </RadzenStack>
+            </RadzenCard>
+
+            @if (!string.IsNullOrEmpty(algorithmResult))
+            {
+                <RadzenCard style="margin-top: 1rem;">
+                    <RadzenFieldset Text="Kết Quả Thuật Toán">
+                        <RadzenStack Gap="0.5rem">
+                            <RadzenText>@((MarkupString)algorithmResult)</RadzenText>
+                        </RadzenStack>
+                    </RadzenFieldset>
+                </RadzenCard>
+            }
+
+        </RadzenColumn>
+
+        <RadzenColumn Size="12" SizeLG="8">
+            @if (GraphData != null && GraphData.AdjacencyList.Count > 0)
+            {
+                <RadzenCard>
+                    <RadzenText Text="Biểu Diễn Đồ Thị" TextStyle="TextStyle.Subtitle1" TagName="TagName.H3" TextAlign="TextAlign.Center" />
+                    <RadzenTabs>
+                        <Tabs>
+                            <RadzenTabsItem Text="Trực Quan (SVG)">
+                                <div style="width: 100%; height: 600px; overflow: auto; display: flex; justify-content: center; align-items: center; border: 1px solid var(--rz-border-color); background-color: var(--rz-base-background-color); border-radius: var(--rz-border-radius); position: relative;">
+                                    <svg width="95%" height="95%" viewBox="0 0 @SVG_WIDTH @SVG_HEIGHT"
+                                         style="cursor: default;"
+                                         @onmousemove="OnMouseMove"
+                                         @onmouseup="OnMouseUp"
+                                         @onmouseleave="OnMouseUp">
+
+                                        <defs>
+                                            <marker id="arrowhead" markerWidth="10" markerHeight="7"
+                                                    refX="9" refY="3.5" orient="auto" markerUnits="strokeWidth">
+                                                <polygon points="0 0, 10 3.5, 0 7" fill="#555" />
+                                            </marker>
+                                            <marker id="arrowhead-highlight" markerWidth="10" markerHeight="7"
+                                                    refX="9" refY="3.5" orient="auto" markerUnits="strokeWidth">
+                                                <polygon points="0 0, 10 3.5, 0 7" fill="@HIGHLIGHT_COLOR_EDGE" />
+                                            </marker>
+                                        </defs>
+
+                                        @foreach (var edge in edges)
+                                        {
+                                            var pos1 = GetPosition(edge.U);
+                                            var pos2 = GetPosition(edge.V);
+
+                                            double dx = pos2.x - pos1.x;
+                                            double dy = pos2.y - pos1.y;
+                                            double len = Math.Sqrt(dx * dx + dy * dy);
+                                            double x1_orig = pos1.x, y1_orig = pos1.y, x2_orig = pos2.x, y2_orig = pos2.y;
+                                            double x2_adj = x2_orig, y2_adj = y2_orig;
+
+                                            if (len > NODE_RADIUS)
+                                            {
+                                                double ux = dx / len;
+                                                double uy = dy / len;
+                                                x2_adj = x2_orig - ux * NODE_RADIUS;
+                                                y2_adj = y2_orig - uy * NODE_RADIUS;
+                                            }
+
+                                            double midX = (x1_orig + x2_adj) / 2;
+                                            double midY = (y1_orig + y2_adj) / 2;
+                                            double angleRad = Math.Atan2(dy, dx);
+                                            double angleDeg = angleRad * (180.0 / Math.PI);
+                                            double weightOffset = 10;
+                                            double weightX = midX + weightOffset * Math.Sin(angleRad);
+                                            double weightY = midY - weightOffset * Math.Cos(angleRad);
+
+                                            bool isHighlighted = highlightedEdges.Contains(edge) || (!IsDirected && highlightedEdges.Contains(new Edge { U = edge.V, V = edge.U }));
+                                            string strokeColor = isHighlighted ? HIGHLIGHT_COLOR_EDGE : "#555";
+                                            double strokeWidth = isHighlighted ? 3 : 1.5;
+                                            string marker = IsDirected ? (isHighlighted ? "url(#arrowhead-highlight)" : "url(#arrowhead)") : "";
+
+                                            <line x1="@x1_orig" y1="@y1_orig"
+                                                  x2="@x2_adj" y2="@y2_adj"
+                                                  stroke="@strokeColor" stroke-width="@strokeWidth"
+                                                  marker-end="@marker" />
+
+                                            <svg:text x="@weightX" y="@weightY" font-size="10" fill="#333" text-anchor="middle"
+                                                      transform="rotate(@angleDeg, @weightX, @weightY)">
+                                                @edge.Weight.ToString("F0")
+                                            </svg:text>
+                                        }
+
+                                        @foreach (var vertex in GraphVertices)
+                                        {
+                                            var pos = GetPosition(vertex);
+                                            bool isHighlighted = highlightedVertices.Contains(vertex);
+                                            bool isSourceDest = vertex == tspStartVertex; // <-- ĐÃ RÚT GỌN
+                                            string fillColor = isSourceDest ? "#FFD700" : (isHighlighted ? HIGHLIGHT_COLOR_VERTEX : "#ADD8E6");
+                                            string strokeColor = isHighlighted ? "#00008B" : "black";
+
+                                            <circle cx="@pos.x" cy="@pos.y" r="18"
+                                                    fill="@fillColor" stroke="@strokeColor" stroke-width="1.5"
+                                                    style="cursor:move"
+                                                    @onmousedown="@(e => OnVertexMouseDown(e, vertex))">
+                                                <title>Đỉnh: @vertex</title> @* Rút gọn Tooltip *@
+                                            </circle>
+                                            <svg:text x="@pos.x" y="@pos.y"
+                                                      font-size="12" font-weight="bold" text-anchor="middle"
+                                                      dy=".3em" fill="black" style="pointer-events:none;">
+                                                @vertex
+                                            </svg:text>
+                                        }
+                                    </svg>
+                                </div>
+                            </RadzenTabsItem>
+                            <RadzenTabsItem Text="Danh sách Kề">
+                                <RadzenTextArea Value="@GetAdjacencyListString()" ReadOnly="true" Rows="15" Style="width:100%; font-family: monospace;" />
+                            </RadzenTabsItem>
+                            <RadzenTabsItem Text="Ma trận Kề">
+                                <RadzenTextArea Value="@GetAdjacencyMatrixString()" ReadOnly="true" Rows="15" Style="width:100%; font-family: monospace;" />
+                            </RadzenTabsItem>
+                        </Tabs>
+                    </RadzenTabs>
+                </RadzenCard>
+            }
+            else
+            {
+                <RadzenCard>
+                    <RadzenText Text="Chưa có đồ thị nào được tạo." TextStyle="TextStyle.Body1" TextAlign="TextAlign.Center" />
+                    <RadzenText Text="Hãy tạo đồ thị ngẫu nhiên." TextStyle="TextStyle.Body2" TextAlign="TextAlign.Center" />
+                </RadzenCard>
+            }
+        </RadzenColumn>
+    </RadzenRow>
+</RadzenStack>
+
+@code {
+    // ==================== Constants & Configuration ====================
+    private const double SVG_WIDTH = 600;
+    private const double SVG_HEIGHT = 600;
+    private const double NODE_RADIUS = 18;
+    private const string HIGHLIGHT_COLOR_VERTEX = "#90EE90"; // LightGreen
+    private const string HIGHLIGHT_COLOR_EDGE = "#FF4500";   // OrangeRed
+
+    // ==================== Graph Data Structures ====================
+    public class GraphModel
+    {
+        public Dictionary<string, List<string>> AdjacencyList { get; set; } = new();
+        public Dictionary<string, List<string>> PredecessorList { get; set; } = new();
+        public bool IsDirected { get; set; } = false;
+
+        public void AddVertex(string vertex)
+        {
+            if (!AdjacencyList.ContainsKey(vertex))
+            {
+                AdjacencyList[vertex] = new List<string>();
+                if (IsDirected) PredecessorList[vertex] = new List<string>();
+            }
+        }
+
+        public void AddEdge(string u, string v)
+        {
+            AddVertex(u);
+            AddVertex(v);
+            if (!AdjacencyList[u].Contains(v))
+            {
+                AdjacencyList[u].Add(v);
+                if (IsDirected && !PredecessorList[v].Contains(u))
+                {
+                    PredecessorList[v].Add(u);
+                }
+            }
+            if (!IsDirected && !AdjacencyList[v].Contains(u))
+            {
+                AdjacencyList[v].Add(u);
+            }
+        }
+
+        public void Clear()
+        {
+            AdjacencyList.Clear();
+            PredecessorList.Clear();
+        }
+    }
+
+    public class Edge : IEquatable<Edge>
+    {
+        public string U { get; set; } = "";
+        public string V { get; set; } = "";
+        public double Weight { get; set; } = 0;
+
+        public bool Equals(Edge? other)
+        {
+            if (other == null) return false;
+            return (this.U == other.U && this.V == other.V) || (this.U == other.V && this.V == other.U);
+        }
+        public override int GetHashCode() => (U.GetHashCode() ^ V.GetHashCode());
+        public override bool Equals(object? obj) => Equals(obj as Edge);
+    }
+
+    // ==================== Component State Variables ====================
+    private GraphModel GraphData = new();
+    private List<Edge> edges = new();
+    private List<string> GraphVertices = new();
+    private Dictionary<string, (double x, double y)> VertexPositions = new();
+
+    private bool IsDirected = false;
+    private int numVertices = 5;
+
+    private string algorithmResult = "";
+    private string tspStartVertex = string.Empty;
+
+    private HashSet<string> highlightedVertices = new();
+    private HashSet<Edge> highlightedEdges = new();
+
+    private string? draggingVertex = null;
+    private double dragOffsetX, dragOffsetY;
+    private double svgMinX = 0, svgMinY = 0, svgMaxX = SVG_WIDTH, svgMaxY = SVG_HEIGHT;
+
+    // ==================== Initialization ====================
+    protected override void OnInitialized()
+    {
+        UpdateTspDropdown();
+    }
+
+    // ==================== Graph Creation & Parsing ====================
+
+    private void ResetGraphState()
+    {
+        GraphData.Clear();
+        GraphData.IsDirected = this.IsDirected;
+        edges.Clear();
+        GraphVertices.Clear();
+        VertexPositions.Clear();
+        highlightedVertices.Clear();
+        highlightedEdges.Clear();
+        algorithmResult = "";
+        tspStartVertex = string.Empty;
+    }
+
+    private Task OnGraphTypeChanged(bool isDirected)
+    {
+        ResetGraphState();
+        NotificationService.Notify(NotificationSeverity.Info, "Loại đồ thị đã thay đổi", "Vui lòng tạo hoặc nhập lại đồ thị.");
+        return Task.CompletedTask;
+    }
+
+    private Task GenerateRandomGraph()
+    {
+        ResetGraphState();
+        GraphData.IsDirected = IsDirected;
+
+        if (numVertices <= 0)
+        {
+            NotificationService.Notify(NotificationSeverity.Warning, "Số đỉnh không hợp lệ", "Vui lòng nhập số đỉnh lớn hơn 0.");
+            return Task.CompletedTask;
+        }
+
+        for (int i = 0; i < numVertices; i++)
+        {
+            string vertex = i.ToString();
+            GraphData.AddVertex(vertex);
+        }
+
+        var random = new Random();
+        var vertexKeys = GraphData.AdjacencyList.Keys.ToList();
+
+        // Đảm bảo đồ thị (vô hướng) liên thông
+        if (!IsDirected && numVertices > 1)
+        {
+            var visited = new HashSet<string> { vertexKeys[0] };
+            var unvisited = new List<string>(vertexKeys.Skip(1));
+
+            while (unvisited.Count > 0)
+            {
+                string u = visited.ElementAt(random.Next(visited.Count));
+                string v = unvisited.ElementAt(random.Next(unvisited.Count));
+                GraphData.AddEdge(u, v);
+                edges.Add(new Edge { U = u, V = v });
+                visited.Add(v);
+                unvisited.Remove(v);
+            }
+        }
+
+        // Thêm cạnh ngẫu nhiên
+        double density = 0.4;
+        if (IsDirected)
+        {
+            for (int i = 0; i < vertexKeys.Count; i++)
+            {
+                for (int j = 0; j < vertexKeys.Count; j++)
+                {
+                    if (i == j) continue;
+                    string u = vertexKeys[i];
+                    string v = vertexKeys[j];
+                    if (!GraphData.AdjacencyList[u].Contains(v) && random.NextDouble() < density)
+                    {
+                        GraphData.AddEdge(u, v);
+                        edges.Add(new Edge { U = u, V = v });
+                    }
+                }
+            }
+        }
+        else // Vô hướng
+        {
+            for (int i = 0; i < vertexKeys.Count; i++)
+            {
+                for (int j = i + 1; j < vertexKeys.Count; j++)
+                {
+                    string u = vertexKeys[i];
+                    string v = vertexKeys[j];
+                    if (!GraphData.AdjacencyList[u].Contains(v) && random.NextDouble() < density)
+                    {
+                        GraphData.AddEdge(u, v);
+                        edges.Add(new Edge { U = u, V = v });
+                    }
+                }
+            }
+        }
+
+        FinishGraphUpdate();
+        NotificationService.Notify(NotificationSeverity.Success, "Thành công", $"Đồ thị ngẫu nhiên ({(IsDirected ? "Có hướng" : "Vô hướng")}) với {numVertices} đỉnh đã được tạo.");
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
+    private void FinishGraphUpdate()
+    {
+        UpdateGraphVerticesAndPositions();
+        UpdateAllEdgeWeights();
+        UpdateTspDropdown();
+        StateHasChanged();
+    }
+
+    // ==================== Graph Updates & Calculations ====================
+
+    private void UpdateGraphVerticesAndPositions()
+    {
+        GraphVertices = GraphData.AdjacencyList.Keys.OrderBy(k => k).ToList();
+        int count = GraphVertices.Count;
+        double centerX = SVG_WIDTH / 2, centerY = SVG_HEIGHT / 2;
+        double radius = Math.Min(centerX, centerY) * 0.8;
+
+        VertexPositions.Clear();
+        for (int i = 0; i < count; i++)
+        {
+            string vertex = GraphVertices[i];
+            double angle = 2 * Math.PI * i / count - (Math.PI / 2);
+            double x = centerX + radius * Math.Cos(angle);
+            double y = centerY + radius * Math.Sin(angle);
+            VertexPositions[vertex] = (x, y);
+        }
+    }
+
+    private void UpdateAllEdgeWeights()
+    {
+        foreach (var edge in edges)
+        {
+            if (VertexPositions.TryGetValue(edge.U, out var pos1) && VertexPositions.TryGetValue(edge.V, out var pos2))
+            {
+                double dx = pos2.x - pos1.x;
+                double dy = pos2.y - pos1.y;
+                edge.Weight = Math.Sqrt(dx * dx + dy * dy);
+            }
+            else
+            {
+                edge.Weight = 1;
+            }
+        }
+    }
+
+    private void UpdateTspDropdown()
+    {
+        var currentTspStart = tspStartVertex;
+        if (GraphVertices.Count > 0)
+        {
+            if (!GraphVertices.Contains(currentTspStart))
+            {
+                tspStartVertex = GraphVertices.First();
+            }
+        }
+        else
+        {
+            tspStartVertex = string.Empty;
+        }
+    }
+
+
+    // ==================== Algorithm Execution ====================
+    private void ClearHighlights()
+    {
+        highlightedVertices.Clear();
+        highlightedEdges.Clear();
+        algorithmResult = "";
+    }
+
+    private bool ValidateGraphAndVertices(int minVertices)
+    {
+        if (GraphData == null || GraphData.AdjacencyList.Count == 0)
+        {
+            NotificationService.Notify(NotificationSeverity.Warning, "Chưa có đồ thị", "Vui lòng tạo hoặc nhập đồ thị trước.");
+            return false;
+        }
+        if (GraphVertices.Count < minVertices)
+        {
+            NotificationService.Notify(NotificationSeverity.Warning, "Không đủ đỉnh", $"Thuật toán này yêu cầu ít nhất {minVertices} đỉnh.");
+            return false;
+        }
+        return true;
+    }
+
+    // ==================== A* TSP Core Logic ====================
+
+    private static long tspStateCounter = 0;
+
+    /// <summary>
+    /// Đại diện cho một trạng thái trong thuật toán A* cho TSP
+    /// </summary>
+    public class TspState : IComparable<TspState>
+    {
+        public long Id { get; } = System.Threading.Interlocked.Increment(ref tspStateCounter);
+        public string CurrentVertex { get; set; } = "";
+        public int VisitedMask { get; set; } // Bitmask của các đỉnh đã thăm
+        public double GScore { get; set; } = 0; // Chi phí thực tế từ đầu đến trạng thái này
+        public double FScore { get; set; } = 0; // GScore + Heuristic
+        public TspState? Parent { get; set; }
+
+        public int CompareTo(TspState? other)
+        {
+            if (other == null) return 1;
+            int fscoreCompare = this.FScore.CompareTo(other.FScore);
+            if (fscoreCompare != 0) return fscoreCompare;
+            int gscoreCompare = other.GScore.CompareTo(this.GScore); // Ưu tiên GScore cao hơn
+            if (gscoreCompare != 0) return gscoreCompare;
+            return this.Id.CompareTo(other.Id); // Tie-breaker
+        }
+
+        public override bool Equals(object? obj) => obj is TspState other && this.CurrentVertex == other.CurrentVertex && this.VisitedMask == other.VisitedMask;
+        public override int GetHashCode() => HashCode.Combine(CurrentVertex, VisitedMask);
+    }
+
+    /// <summary>
+    /// Lấy trọng số cạnh giữa u và v (vô hướng)
+    /// </summary>
+    private double GetEdgeWeight(string u, string v)
+    {
+        if (u == v) return 0;
+        var edge = edges.FirstOrDefault(e => (e.U == u && e.V == v) || (e.U == v && e.V == u));
+        return edge?.Weight ?? double.PositiveInfinity;
+    }
+
+    /// <summary>
+    /// Chạy Prim MST trên một tập con các đỉnh
+    /// </summary>
+    private double PrimMSTSubset(List<string> subsetVertices)
+    {
+        if (subsetVertices == null || subsetVertices.Count == 0) return 0;
+
+        double mstWeight = 0;
+        var inMST = new HashSet<string>();
+        var keys = new Dictionary<string, double>();
+        foreach (var v in subsetVertices)
+        {
+            keys[v] = double.PositiveInfinity;
+        }
+
+        string start = subsetVertices.First();
+        keys[start] = 0;
+
+        var pq = new SortedSet<(double Weight, string Vertex)>();
+        pq.Add((0, start));
+
+        while (pq.Count > 0)
+        {
+            var (weight, u) = pq.Min;
+            pq.Remove(pq.Min);
+            if (inMST.Contains(u)) continue;
+
+            inMST.Add(u);
+            mstWeight += weight;
+
+            foreach (var v in subsetVertices)
+            {
+                if (u == v || inMST.Contains(v)) continue;
+                double edgeWeight = GetEdgeWeight(u, v);
+                if (edgeWeight < keys[v])
+                {
+                    keys[v] = edgeWeight;
+                    pq.RemoveWhere(item => item.Vertex == v);
+                    pq.Add((keys[v], v));
+                }
+            }
+        }
+        return mstWeight;
+    }
+
+
+    /// <summary>
+    /// Tính toán hàm heuristic (h) cho trạng thái TSP
+    /// h = MST(chưa thăm + đỉnh bắt đầu) + CạnhRẻNhất(hiện tại -> chưa thăm)
+    /// </summary>
+    private double CalculateTspHeuristic(TspState state, string startNode, Dictionary<string, int> vertexIndexMap, List<string> allVertices)
+    {
+        double h = 0;
+        var unvisitedNodes = new List<string>();
+
+        for (int i = 0; i < allVertices.Count; i++)
+        {
+            if ((state.VisitedMask & (1 << i)) == 0)
+            {
+                unvisitedNodes.Add(allVertices[i]);
+            }
+        }
+
+        // 1. Nếu không còn đỉnh nào chưa thăm -> chi phí là quay về đỉnh bắt đầu
+        if (unvisitedNodes.Count == 0)
+        {
+            return GetEdgeWeight(state.CurrentVertex, startNode);
+        }
+
+        // 2. Tính MST trên các đỉnh CHƯA THĂM + ĐỈNH BẮT ĐẦU (để tính đường về)
+        var nodesForMst = new List<string>(unvisitedNodes);
+        nodesForMst.Add(startNode);
+        h += PrimMSTSubset(nodesForMst);
+
+        // 3. Cạnh rẻ nhất từ ĐỈNH HIỆN TẠI đến một đỉnh CHƯA THĂM
+        double minCostToUnvisited = double.PositiveInfinity;
+        foreach (var v in unvisitedNodes)
+        {
+            minCostToUnvisited = Math.Min(minCostToUnvisited, GetEdgeWeight(state.CurrentVertex, v));
+        }
+
+        // Nếu không có, phải quay về start
+        if (minCostToUnvisited == double.PositiveInfinity)
+        {
+            minCostToUnvisited = GetEdgeWeight(state.CurrentVertex, startNode);
+        }
+        h += minCostToUnvisited;
+
+        return h;
+    }
+
+
+    /// <summary>
+    /// Chạy thuật toán A* cho TSP
+    /// </summary>
+    private async Task RunAStarTsp()
+    {
+        ClearHighlights();
+        if (IsDirected)
+        {
+            NotificationService.Notify(NotificationSeverity.Error, "Lỗi", "A* (TSP) chỉ chạy trên đồ thị vô hướng.");
+            return;
+        }
+        if (!ValidateGraphAndVertices(2) || string.IsNullOrEmpty(tspStartVertex))
+        {
+            NotificationService.Notify(NotificationSeverity.Warning, "Thiếu thông tin", "Vui lòng chọn đỉnh bắt đầu.");
+            return;
+        }
+
+        NotificationService.Notify(NotificationSeverity.Info, "Đang chạy A* (TSP)", "Quá trình này có thể mất nhiều thời gian...");
+        await Task.Delay(50); // Cho phép UI cập nhật
+        var stopwatch = Stopwatch.StartNew();
+
+        // ---- Thiết lập A* ----
+        var allVertices = GraphVertices.ToList();
+        int n = allVertices.Count;
+        var vertexIndexMap = new Dictionary<string, int>();
+        for (int i = 0; i < n; i++)
+        {
+            vertexIndexMap[allVertices[i]] = i;
+        }
+
+        int startNodeIndex = vertexIndexMap[tspStartVertex];
+        int allVisitedMask = (1 << n) - 1;
+
+        var pq = new SortedSet<TspState>();
+        var gScores = new Dictionary<TspState, double>();
+
+        var startState = new TspState
+        {
+            CurrentVertex = tspStartVertex,
+            VisitedMask = (1 << startNodeIndex),
+            GScore = 0,
+            Parent = null
+        };
+        startState.FScore = CalculateTspHeuristic(startState, tspStartVertex, vertexIndexMap, allVertices);
+
+        pq.Add(startState);
+        gScores[startState] = 0;
+
+        TspState? finalState = null;
+
+        // ---- Vòng lặp A* ----
+        while (pq.Count > 0)
+        {
+            TspState currentState = pq.Min;
+            pq.Remove(currentState);
+
+            if (currentState.GScore > gScores.GetValueOrDefault(currentState, double.PositiveInfinity))
+            {
+                continue;
+            }
+
+            // Kiểm tra mục tiêu: Đã thăm tất cả?
+            if (currentState.VisitedMask == allVisitedMask)
+            {
+                double costBackToStart = GetEdgeWeight(currentState.CurrentVertex, tspStartVertex);
+                if (costBackToStart != double.PositiveInfinity)
+                {
+                    finalState = currentState;
+                    break;
+                }
+                continue;
+            }
+
+            // Mở rộng các trạng thái kề
+            for (int i = 0; i < n; i++)
+            {
+                // Nếu đỉnh 'i' chưa được thăm
+                if ((currentState.VisitedMask & (1 << i)) == 0)
+                {
+                    string neighborVertex = allVertices[i];
+                    double edgeWeight = GetEdgeWeight(currentState.CurrentVertex, neighborVertex);
+
+                    if (edgeWeight != double.PositiveInfinity)
+                    {
+                        double newGScore = currentState.GScore + edgeWeight;
+                        int newMask = currentState.VisitedMask | (1 << i);
+                        var nextStateKey = new TspState { CurrentVertex = neighborVertex, VisitedMask = newMask };
+
+                        if (newGScore < gScores.GetValueOrDefault(nextStateKey, double.PositiveInfinity))
+                        {
+                            gScores[nextStateKey] = newGScore;
+                            var nextState = new TspState
+                            {
+                                CurrentVertex = neighborVertex,
+                                VisitedMask = newMask,
+                                GScore = newGScore,
+                                Parent = currentState
+                            };
+                            nextState.FScore = newGScore + CalculateTspHeuristic(nextState, tspStartVertex, vertexIndexMap, allVertices);
+                            pq.RemoveWhere(s => s.CurrentVertex == neighborVertex && s.VisitedMask == newMask);
+                            pq.Add(nextState);
+                        }
+                    }
+                }
+            }
+        }
+
+        stopwatch.Stop();
+
+        // --- Xử lý kết quả ---
+        if (finalState != null)
+        {
+            var path = new List<string>();
+            TspState? curr = finalState;
+            while (curr != null)
+            {
+                path.Add(curr.CurrentVertex);
+                curr = curr.Parent;
+            }
+            path.Reverse();
+            path.Add(tspStartVertex);
+
+            double finalCost = finalState.GScore + GetEdgeWeight(finalState.CurrentVertex, tspStartVertex);
+
+            // Highlight
+            highlightedVertices.UnionWith(path);
+            for (int i = 0; i < path.Count - 1; i++)
+            {
+                string u = path[i];
+                string v = path[i + 1];
+                var edge = edges.FirstOrDefault(e => (e.U == u && e.V == v) || (e.U == v && e.V == u));
+                if (edge != null) highlightedEdges.Add(edge);
+            }
+
+            algorithmResult = $"<b>A* (TSP) thành công!</b> (sau {stopwatch.ElapsedMilliseconds} ms)<br/>" +
+                              $"Tổng chi phí: {finalCost:F2}<br/>" +
+                              $"Đường đi: {string.Join(" -> ", path)}";
+            NotificationService.Notify(NotificationSeverity.Success, "Hoàn thành", "Tìm thấy đường đi TSP tối ưu.");
+        }
+        else
+        {
+            algorithmResult = $"Không tìm thấy chu trình Hamilton (TSP) từ đỉnh {tspStartVertex}. (sau {stopwatch.ElapsedMilliseconds} ms)";
+            NotificationService.Notify(NotificationSeverity.Warning, "Không thành công", "Không tìm thấy chu trình TSP.");
+        }
+
+        StateHasChanged();
+    }
+
+
+    // ==================== SVG Rendering & Interaction ====================
+
+    private (double x, double y) GetPosition(string vertex)
+    {
+        if (VertexPositions.TryGetValue(vertex, out var pos))
+        {
+            return pos;
+        }
+        return (SVG_WIDTH / 2, SVG_HEIGHT / 2);
+    }
+
+    private Task OnVertexMouseDown(MouseEventArgs e, string vertex)
+    {
+        if (VertexPositions.TryGetValue(vertex, out var pos))
+        {
+            draggingVertex = vertex;
+            dragOffsetX = e.ClientX - pos.x;
+            dragOffsetY = e.ClientY - pos.y;
+        }
+        return Task.CompletedTask;
+    }
+
+    private Task OnMouseMove(MouseEventArgs e)
+    {
+        if (draggingVertex != null && VertexPositions.ContainsKey(draggingVertex))
+        {
+            double newX = Math.Clamp(e.ClientX - dragOffsetX, svgMinX + NODE_RADIUS, svgMaxX - NODE_RADIUS);
+            double newY = Math.Clamp(e.ClientY - dragOffsetY, svgMinY + NODE_RADIUS, svgMaxY - NODE_RADIUS);
+            VertexPositions[draggingVertex] = (newX, newY);
+            UpdateWeightsForVertex(draggingVertex);
+            StateHasChanged();
+        }
+        return Task.CompletedTask;
+    }
+
+    private void UpdateWeightsForVertex(string vertex)
+    {
+        foreach (var edge in edges)
+        {
+            if (edge.U == vertex || edge.V == vertex)
+            {
+                if (VertexPositions.TryGetValue(edge.U, out var pos1) && VertexPositions.TryGetValue(edge.V, out var pos2))
+                {
+                    double dx = pos2.x - pos1.x;
+                    double dy = pos2.y - pos1.y;
+                    edge.Weight = Math.Sqrt(dx * dx + dy * dy);
+                }
+            }
+        }
+    }
+
+    private Task OnMouseUp(MouseEventArgs e)
+    {
+        draggingVertex = null;
+        return Task.CompletedTask;
+    }
+
+    // ==================== String Representations ====================
+
+    private string GetAdjacencyListString()
+    {
+        if (GraphData == null || GraphData.AdjacencyList.Count == 0) return "Đồ thị trống.";
+        var sb = new StringBuilder();
+        sb.AppendLine($"Đồ thị {(IsDirected ? "có" : "vô")} hướng:");
+        foreach (var kvp in GraphData.AdjacencyList.OrderBy(k => k.Key))
+        {
+            sb.AppendLine($"{kvp.Key}: {string.Join(", ", kvp.Value.OrderBy(v => v))}");
+        }
+        return sb.ToString();
+    }
+
+    private string GetAdjacencyMatrixString()
+    {
+        if (GraphData == null || GraphData.AdjacencyList.Count == 0) return "Đồ thị trống.";
+
+        var sortedVertices = GraphVertices.OrderBy(v => v).ToList();
+        int size = sortedVertices.Count;
+        var matrix = new int[size, size];
+        var vertexIndexMap = new Dictionary<string, int>();
+        for (int i = 0; i < size; i++) vertexIndexMap[sortedVertices[i]] = i;
+
+        foreach (var u in sortedVertices)
+        {
+            if (GraphData.AdjacencyList.TryGetValue(u, out var neighbors))
+            {
+                foreach (var v in neighbors)
+                {
+                    if (vertexIndexMap.TryGetValue(u, out int uIndex) && vertexIndexMap.TryGetValue(v, out int vIndex))
+                    {
+                        matrix[uIndex, vIndex] = 1;
+                    }
+                }
+            }
+        }
+
+        var sb = new StringBuilder();
+        sb.Append("    ");
+        foreach (var v in sortedVertices) sb.Append(v.PadRight(3));
+        sb.AppendLine();
+        sb.AppendLine("---" + new string('-', size * 3));
+
+        for (int i = 0; i < size; i++)
+        {
+            sb.Append(sortedVertices[i].PadRight(3));
+            sb.Append("|");
+            for (int j = 0; j < size; j++)
+            {
+                sb.Append(matrix[i, j].ToString().PadRight(3));
+            }
+            sb.AppendLine();
+        }
+        return sb.ToString();
+    }
+}
